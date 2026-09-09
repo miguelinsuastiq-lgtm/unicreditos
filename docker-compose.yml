@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  # ── Base de datos ──────────────────────────────────────────────
+  db:
+    # 10.11 es la versión LTS de MariaDB, mejor probada corriendo dentro
+    # de Docker Desktop en Windows/WSL2 — mariadb:11 puede tener problemas
+    # con io_uring bloqueado por el kernel de WSL2 en algunas máquinas.
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-unicreditos_root}
+      MYSQL_DATABASE: unicreditos
+    # Fuerza a usar libaio directamente (evita el intento fallido de
+    # io_uring, que en Docker Desktop/WSL2 aparece bloqueado por el kernel).
+    command: --innodb-use-native-aio=0
+    volumes:
+      - db_data:/var/lib/mysql
+      # Estos scripts se ejecutan SOLO la primera vez que se crea el volumen
+      # (si ya existe una base de datos previa, no se vuelven a correr).
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/2-seed.sql:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASSWORD:-unicreditos_root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # En Docker Desktop + Windows/WSL2, la primera inicialización de
+      # MariaDB puede tardar varios minutos (se vio que tomó casi 5 en
+      # una prueba real) — le damos bastante margen antes de empezar a
+      # contar intentos fallidos. Las siguientes veces es mucho más
+      # rápido, porque ya no tiene que crear los archivos desde cero.
+      start_period: 300s
+
+  # ── Backend (API en PHP) ────────────────────────────────────────
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_NAME: unicreditos
+      DB_USER: root
+      DB_PASS: ${DB_ROOT_PASSWORD:-unicreditos_root}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Los documentos subidos por los usuarios sobreviven aunque se
+      # reconstruya el contenedor (si no, se perderían en cada deploy).
+      - backend_uploads:/var/www/html/uploads
+    ports:
+      - "8080:80"
+
+  # ── Frontend (React compilado, servido con nginx) ───────────────
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Debe apuntar a donde el NAVEGADOR del usuario pueda alcanzar
+        # el backend — no al nombre interno "backend" de Docker, porque
+        # el navegador corre fuera de la red de contenedores.
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080/api}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  db_data:
+  backend_uploads:

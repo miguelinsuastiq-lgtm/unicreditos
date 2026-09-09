@@ -3,11 +3,13 @@
 // UniCréditos — Corporación Universitaria Autónoma del Cauca
 // Configuración de base de datos
 // ============================================================
+// Usa variables de entorno si existen (para Docker) — si no,
+// cae en los valores de siempre (para XAMPP local, sin cambios).
 
-define('DB_HOST',    'localhost');
-define('DB_NAME',    'unicreditos');
-define('DB_USER',    'root');
-define('DB_PASS',    '');         // En producción cambiar con TI
+define('DB_HOST',    getenv('DB_HOST') ?: 'localhost');
+define('DB_NAME',    getenv('DB_NAME') ?: 'unicreditos');
+define('DB_USER',    getenv('DB_USER') ?: 'root');
+define('DB_PASS',    getenv('DB_PASS') ?: '');         // En producción cambiar con TI
 define('DB_CHARSET', 'utf8mb4');
 
 /**
